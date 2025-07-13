@@ -24,7 +24,6 @@ class UserProfile:
             username=user.username,
             language_code=user.language_code,
         )
-
 @dataclass
 class ChatContext:
     """effective_chat data"""
@@ -94,17 +93,21 @@ class SessionData:
             chat=ChatContext.from_update(up),
             message=MessageMetadata.from_update(up),
         )
-
+    
     @property
     def uid(self) -> int:
-        """Unique identifier for the user."""
+        """Shortcut for user ID"""
         return self.user.user_id
-    def uname(self) -> str:
-        """Username of the user."""
-        return self.user.username if self.user.username else self.user.first_name
+
+    @property
     def cid(self) -> int:
-        """Unique identifier for the chat."""
+        """Shortcut for chat ID"""
         return self.chat.chat_id
+
+    @property
+    def uname(self) -> str:
+        """Username or first name"""
+        return self.user.username if self.user.username else self.user.first_name
     
     def summary(self) -> str:
         return (

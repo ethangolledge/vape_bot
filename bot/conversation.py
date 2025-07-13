@@ -20,135 +20,119 @@ from .states import BotStates
 
 class ConversationFlow:
     def __init__(self) -> None:
-        """Initialise the bot and set up the relevant classes."""
+        """Initialise the bot and store user setup sessions."""
         self.user_setup_data = {}
+
     def _get_session(self, up: Update) -> SessionData:
-        """Get the session data from the update."""
-        return SessionData.from_update(up)
+        """Get or create the session data from the update."""
+        uid = up.effective_user.id if up.effective_user else None
+        if uid in self.user_setup_data:
+            return self.user_setup_data[uid]
+        
+        session = SessionData.from_update(up)
+        if session.uid is None or session.cid is None:
+            raise ValueError("Invalid session data: missing user or chat ID.")
+        
+        self.user_setup_data[session.uid] = session
+        return session
 
-    """The below functions are used to handle the setup process"""
-    """Eventually, when we have a database, this will be used to store the user data.
-       I'd like to add functionality to check whether they have set up and whether they want to overwrite their data."""
-    
-    async def ask_tokes(self, up:Update, ctx:ContextTypes.DEFAULT_TYPE):
-        """This is the entry function to setup.
-           Provides a breif explaination of the setup process and also how many tokes the user has a day."""
-        """Reckon we also need to handle whether the user is in a group or not, a bot etc. Few things to consider."""
+    def _update_setup(self, up: Update, field: str, value: str):
+        """Helper to update a single setup field and persist it."""
+        session = self._get_session(up)
+        setattr(session.setup, field, value)
+        self.user_setup_data[session.uid] = session
+
+    async def ask_tokes(self, up: Update, ctx: ContextTypes.DEFAULT_TYPE):
         try:
-            user_data = SessionData.from_update(up)
-
-            if user_data.user.uid is None or user_data.cid is None:
-                raise ValueError("User ID or Chat ID not found in the update.")
-            # Initialise the user id key within the session to temp store data
-            self.user_session_data[user_data.user.uid] = user_data
+            self._get_session(up)  # ensures session is created/stored
 
             await up.message.reply_text(
-                f"Hi {user_data.uname}, welcome to the setup!\n"
-                "Let's get started with some questions.\n"
-                "You can cancel at any time by sending /cancel.\n\n"
-                "Please tell me how many tokeskis you have a day.\n"
-                "Don't be telling no porkies!\n"
-                "This number will be used to calculate your reduction plan.\n",
+                "Hi! Let's start setup.\n"
+                "How many tokes do you have a day?",
                 reply_markup=ReplyKeyboardRemove()
             )
             return BotStates.TOKES
         except Exception as e:
             print(f"Error in ask_tokes: {e}")
 
-    async def ask_stength(self, up:Update, ctx:ContextTypes.DEFAULT_TYPE):
-        """Ask the user the strengh of nicotine they use."""
+    async def ask_stength(self, up: Update, ctx: ContextTypes.DEFAULT_TYPE):
         try:
-            user_data = SessionData.from_update(up)
-            if user_data is None:
-                raise ValueError("User data not found in the update.")
-            
-            # Store the response in the user session
-            # We are gonna have to apply some sort of validation/parsing here
-            user_data.tokes = up.message.text
+            if not up.message or not up.message.text:
+                raise ValueError("Missing message text.")
+            self._update_setup(up, "tokes", up.message.text)
 
             await up.message.reply_text(
                 "Sickna mate.\n"
-                "Now, what stength nicotine are you chomping through?\n"
-                "For example, 3mg, 6mg, 12mg, etc.\n\n",
+                "What strength nicotine are you chomping through? e.g. 3mg, 6mg, 12mg",
                 reply_markup=ReplyKeyboardRemove()
             )
-
             return BotStates.STRENGTH
         except Exception as e:
-            print(f"Error in ask_strength: {e}")
+            print(f"Error in ask_stength: {e}")
 
-    async def ask_method(self, up:Update, ctx:ContextTypes.DEFAULT_TYPE):
-        """Ask the user how they want to reduce their vaping."""
-        user_data = self.user_session_data.setdefault(self._uid(up), UserData(user_id=self._uid(up)))
-        # Store the data prompted by the previous function, this follows the same pattern for latter functions
-        user_data.strength = up.message.text
+    async def ask_method(self, up: Update, ctx: ContextTypes.DEFAULT_TYPE):
+        try:
+            if not up.message or not up.message.text:
+                raise ValueError("Missing message text.")
+            self._update_setup(up, "strength", up.message.text)
 
-        keyboard = [
-            [InlineKeyboardButton("By A Set Number", callback_data="number")],
-            [InlineKeyboardButton("Percent", callback_data="percent")]
-        ]
+            keyboard = [
+                [InlineKeyboardButton("By A Set Number", callback_data="number")],
+                [InlineKeyboardButton("Percent", callback_data="percent")]
+            ]
 
-        await up.message.reply_text(
-            f"Alright, let's figure out how you want to reduce your vaping.\n\n"
-            "You can choose to:\n"
-            "• Reduce by a specific number of tokes each day\n"
-            "• Reduce by a percentage of your daily tokes\n\n"
-            "Which method works better for you?",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-
-        return BotStates.METHOD
-
-    async def ask_goal(self, up:Update, ctx:ContextTypes.DEFAULT_TYPE):
-        """Ask the user for their weekly reduction goal."""
-        query = up.callback_query
-        await query.answer()
-
-        user_data = self.user_session_data.setdefault(self._uid(up), UserData(user_id=self._uid(up)))
-        user_data.method = query.data
-
-        if user_data.method == "number":
-            await query.message.reply_text(
-                "Cool beans.\n"
-                "Now, how many tokes do you want to cut down per day?",
-                reply_markup=ReplyKeyboardRemove()
+            await up.message.reply_text(
+                "How do you want to reduce vaping?\nChoose a method:",
+                reply_markup=InlineKeyboardMarkup(keyboard)
             )
-        elif user_data.method == "percent":
-            await query.message.reply_text(
-                "Cool beans.\n"
-                "Now, what percentage of your daily tokes do you want to cut down?",
-                reply_markup=ReplyKeyboardRemove()
-            )
-        else:
-            raise ValueError("Invalid method selected.")
+            return BotStates.METHOD
+        except Exception as e:
+            print(f"Error in ask_method: {e}")
 
-        return BotStates.GOAL
+    async def ask_goal(self, up: Update, ctx: ContextTypes.DEFAULT_TYPE):
+        try:
+            query = up.callback_query
+            if not query:
+                raise ValueError("Missing callback query.")
+            await query.answer()
+
+            self._update_setup(up, "method", query.data)
+
+            prompt = "How many tokes do you want to cut down per day?" if query.data == "number" else \
+                     "What percentage of your daily tokes do you want to cut down?"
+
+            await query.message.reply_text(prompt, reply_markup=ReplyKeyboardRemove())
+            return BotStates.GOAL
+        except Exception as e:
+            print(f"Error in ask_goal: {e}")
 
     async def setup_finish(self, up: Update, ctx: ContextTypes.DEFAULT_TYPE):
-        """Finish the setup and confirm the user's choices."""
-        user_data = self.user_session_data.setdefault(self._uid(up), UserData(user_id=self._uid(up)))
-        user_data.goal = up.message.text
+        try:
+            if not up.message or not up.message.text:
+                raise ValueError("Missing message text.")
+            self._update_setup(up, "goal", up.message.text)
 
-        await up.message.reply_text(
-            user_data.summary() + "\n"
-            "Great! Your setup is complete.\n\n"
-            "We've saved your preferences:\n"
-            "You can start tracking your tokes.\n"
-            "If you want to change anything, just send /setup again.",
-            reply_markup=ReplyKeyboardRemove()
-        )
-        return ConversationHandler.END
-        
-    async def cancel(self, up:Update, ctx:ContextTypes.DEFAULT_TYPE):
-        """Cancel the conversation."""
-        await up.message.reply_text(
-            "Setup cancelled. You can start again with /setup.",
-            reply_markup=ReplyKeyboardRemove()
-        )
-        return ConversationHandler.END
+            session = self._get_session(up)
+            await up.message.reply_text(
+                session.summary() + "\nSetup complete! Send /setup to change anything.",
+                reply_markup=ReplyKeyboardRemove()
+            )
+            return ConversationHandler.END
+        except Exception as e:
+            print(f"Error in setup_finish: {e}")
 
-    def setup_build(self) -> None:
-        """Run the bot."""
+    async def cancel(self, up: Update, ctx: ContextTypes.DEFAULT_TYPE):
+        try:
+            await up.message.reply_text(
+                "Setup cancelled. You can start again with /setup.",
+                reply_markup=ReplyKeyboardRemove()
+            )
+            return ConversationHandler.END
+        except Exception as e:
+            print(f"Error in cancel: {e}")
+
+    def setup_build(self) -> ConversationHandler:
+        """Constructs and returns the setup conversation handler."""
         return ConversationHandler(
             entry_points=[CommandHandler("setup", self.ask_tokes)],
             states={
