@@ -31,8 +31,13 @@ class ConversationFlow:
     def _uname(up: Update) -> str | None:
         return up.effective_user.first_name if up.effective_user else None
     
-    async def setup(self, up:Update, ctx:ContextTypes.DEFAULT_TYPE):
-        """Start the conversation and let the user know what to expect."""
+    """The below functions are used to handle the setup process"""
+    """Eventually, when we have a database, this will be used to store the user data.
+       I'd like to add functionality to check whether they have set up and whether they want to overwrite their data."""
+    
+    async def ask_tokes(self, up:Update, ctx:ContextTypes.DEFAULT_TYPE):
+        """This is the entry function to setup.
+           Provides a breif explaination of the setup process and also how many tokes the user has a day."""
         await up.message.reply_text(
             f"Hi {self._uname(up)}, welcome to the setup!\n"
             "Let's get started with some questions.\n"
@@ -45,10 +50,9 @@ class ConversationFlow:
         return BotStates.TOKES
 
     async def ask_stength(self, up:Update, ctx:ContextTypes.DEFAULT_TYPE):
-        """Ask the user how they want to reduce their vaping."""
-        tokes = up.message.text
+        """Ask the user the strengh of nicotine they use."""
         user_data = self.user_data_store.setdefault(self._uid(up), UserData(user_id=self._uid(up)))
-        user_data.tokes = tokes
+        user_data.tokes = up.message.text
 
         await up.message.reply_text(
             "Sickna mate.\n"
@@ -62,7 +66,7 @@ class ConversationFlow:
     async def ask_method(self, up:Update, ctx:ContextTypes.DEFAULT_TYPE):
         """Ask the user how they want to reduce their vaping."""
         user_data = self.user_data_store.setdefault(self._uid(up), UserData(user_id=self._uid(up)))
-        # Store the data prompted by the previous function
+        # Store the data prompted by the previous function, this follows the same pattern for latter functions
         user_data.strength = up.message.text
 
         keyboard = [
@@ -86,7 +90,6 @@ class ConversationFlow:
         query = up.callback_query
         await query.answer()
 
-        # Store the method chosen by the user
         user_data = self.user_data_store.setdefault(self._uid(up), UserData(user_id=self._uid(up)))
         user_data.method = query.data
 
@@ -107,7 +110,7 @@ class ConversationFlow:
 
         return BotStates.GOAL
 
-    async def finish_setup(self, up: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    async def setup_finish(self, up: Update, ctx: ContextTypes.DEFAULT_TYPE):
         """Finish the setup and confirm the user's choices."""
         user_data = self.user_data_store.setdefault(self._uid(up), UserData(user_id=self._uid(up)))
         user_data.goal = up.message.text
@@ -133,12 +136,12 @@ class ConversationFlow:
     def setup_build(self) -> None:
         """Run the bot."""
         return ConversationHandler(
-            entry_points=[CommandHandler("setup", self.setup)],
+            entry_points=[CommandHandler("setup", self.ask_tokes)],
             states={
                 BotStates.TOKES: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.ask_stength)],
                 BotStates.STRENGTH: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.ask_method)],
                 BotStates.METHOD: [CallbackQueryHandler(self.ask_goal)],
-                BotStates.GOAL: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.finish_setup)],
+                BotStates.GOAL: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.setup_finish)],
             },
             fallbacks=[CommandHandler("cancel", self.cancel)],
         )
