@@ -35,7 +35,7 @@ class ConversationFlow:
         """Ask the user how they want to reduce their vaping."""
         user = up.message.from_user
         tokes = up.message.text
-        user_data = self.setup_data.setdefault(user.id, UserData(user.id))
+        user_data = self.user_data_store.setdefault(user.id, UserData(user.id))
         user_data.tokes = tokes
 
         await up.message.reply_text(
@@ -52,7 +52,7 @@ class ConversationFlow:
         reply_keyboard = [["Number"], ["Percent"]]
         user = up.message.from_user
         strength = up.message.text
-        user_data = self.setup_data.setdefault(user.id, UserData(user.id))
+        user_data = self.user_data_store.setdefault(user.id, UserData(user.id))
         user_data.strength = strength
 
         await up.message.reply_text(
@@ -71,7 +71,7 @@ class ConversationFlow:
         """Ask the user for their weekly reduction goal."""
         user = up.message.from_user
         method = up.message.text
-        user_data = self.setup_data.setdefault(user.id, UserData(user.id))
+        user_data = self.user_data_store.setdefault(user.id, UserData(user.id))
         user_data.method = method
 
 
@@ -87,7 +87,7 @@ class ConversationFlow:
         """Finish the setup and confirm the user's choices."""
         user = up.message.from_user
         goal = up.message.text
-        user_data = self.setup_data.setdefault(user.id, UserData(user.id))
+        user_data = self.user_data_store.setdefault(user.id, UserData(user.id))
         user_data.goal = goal
 
         await up.message.reply_text(
@@ -107,9 +107,9 @@ class ConversationFlow:
         )
         return ConversationHandler.END
 
-    def main(self) -> None:
+    def setup_build(self) -> None:
         """Run the bot."""
-        conv_handler = ConversationHandler(
+        return ConversationHandler(
             entry_points=[CommandHandler("setup", self.setup)],
             states={
                 BotStates.TOKES: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.ask_stength)],
@@ -119,5 +119,3 @@ class ConversationFlow:
             },
             fallbacks=[CommandHandler("cancel", self.cancel)],
         )
-        self.app.add_handler(conv_handler)
-        self.app.run_polling()
