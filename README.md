@@ -8,6 +8,5 @@ The goal is to evolve this into something useful over time, with:
 - 🧠 Analytics and suggestions for reducing intake
 - 🐍 A clean, modular Python structure
 - 🐳 Easy deployment via Docker
-- 🧪 Testable logic (Pytest)
 
 Still early days, but we'll see where it goes!
