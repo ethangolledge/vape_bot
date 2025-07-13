@@ -1,47 +1,59 @@
 from telegram import (
-    ReplyKeyboardMarkup, 
+    ReplyKeyboardMarkup,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
     ReplyKeyboardRemove, 
     Update
 )
 from telegram.ext import (
-    Application, 
     CommandHandler,
     ContextTypes, 
     ConversationHandler,
+    CallbackQueryHandler,
     MessageHandler,
     filters
 )
+from telegram.constants import ParseMode
+
 from .models import UserData
 from .states import BotStates
 
 class ConversationFlow:
     def __init__(self) -> None:
-        """Initialize the bot and set up the relevant classes."""
+        """Initialise the bot and set up the relevant classes."""
         self.user_data_store = {}
+        
+    @staticmethod
+    def _uid(up: Update) -> int  | None:
+        return up.effective_user.id if up.effective_user else None
 
+    @staticmethod
+    def _uname(up: Update) -> str | None:
+        return up.effective_user.first_name if up.effective_user else None
+    
     async def setup(self, up:Update, ctx:ContextTypes.DEFAULT_TYPE):
         """Start the conversation and let the user know what to expect."""
-        user = up.message.from_user
-        user_name = user.first_name
         await up.message.reply_text(
-            f"Hi {user_name}. Welcome to the setup! Let's get started with some questions.\n"
-            "You can cancel at any time by sending /cancel.\n"
-            "First, how many tokes do you take per day?",
+            f"Hi {self._uname(up)}, welcome to the setup!\n"
+            "Let's get started with some questions.\n"
+            "You can cancel at any time by sending /cancel.\n\n"
+            "Please tell me how many tokeskis you have a day.\n"
+            "Don't be telling no porkies!\n"
+            "This number will be used to calculate your reduction plan.\n",
             reply_markup=ReplyKeyboardRemove()
         )
         return BotStates.TOKES
 
     async def ask_stength(self, up:Update, ctx:ContextTypes.DEFAULT_TYPE):
         """Ask the user how they want to reduce their vaping."""
-        user = up.message.from_user
         tokes = up.message.text
-        user_data = self.user_data_store.setdefault(user.id, UserData(user.id))
+        user_data = self.user_data_store.setdefault(self._uid(up), UserData(user_id=self._uid(up)))
         user_data.tokes = tokes
 
         await up.message.reply_text(
             "Sickna mate.\n"
-            "What stength nicotine do you use?\n"
-            "For example, 3mg, 6mg, 12mg, etc.",
+            "Now, what stength nicotine are you chomping through?\n"
+            "For example, 3mg, 6mg, 12mg, etc.\n\n",
             reply_markup=ReplyKeyboardRemove()
         )
 
@@ -49,50 +61,62 @@ class ConversationFlow:
 
     async def ask_method(self, up:Update, ctx:ContextTypes.DEFAULT_TYPE):
         """Ask the user how they want to reduce their vaping."""
-        reply_keyboard = [["Number"], ["Percent"]]
-        user = up.message.from_user
-        strength = up.message.text
-        user_data = self.user_data_store.setdefault(user.id, UserData(user.id))
-        user_data.strength = strength
+        user_data = self.user_data_store.setdefault(self._uid(up), UserData(user_id=self._uid(up)))
+        # Store the data prompted by the previous function
+        user_data.strength = up.message.text
+
+        keyboard = [
+            [InlineKeyboardButton("By A Set Number", callback_data="number")],
+            [InlineKeyboardButton("Percent", callback_data="percent")]
+        ]
 
         await up.message.reply_text(
-            f"Get ya. We can manage that!\n"
-            "How do you want to reduce your vaping?",
-            reply_markup=ReplyKeyboardMarkup(
-                reply_keyboard,
-                one_time_keyboard=True,
-                input_field_placeholder="Choose a method"
-            ),
+            f"Alright, let's figure out how you want to reduce your vaping.\n\n"
+            "You can choose to:\n"
+            "• Reduce by a specific number of tokes each day\n"
+            "• Reduce by a percentage of your daily tokes\n\n"
+            "Which method works better for you?",
+            reply_markup=InlineKeyboardMarkup(keyboard)
         )
 
         return BotStates.METHOD
 
     async def ask_goal(self, up:Update, ctx:ContextTypes.DEFAULT_TYPE):
         """Ask the user for their weekly reduction goal."""
-        user = up.message.from_user
-        method = up.message.text
-        user_data = self.user_data_store.setdefault(user.id, UserData(user.id))
-        user_data.method = method
+        query = up.callback_query
+        await query.answer()
 
+        # Store the method chosen by the user
+        user_data = self.user_data_store.setdefault(self._uid(up), UserData(user_id=self._uid(up)))
+        user_data.method = query.data
 
-        await up.message.reply_text(
-            "Cool beans.\n" 
-            "Now, what is your weekly reduction goal? ",
-            reply_markup=ReplyKeyboardRemove()
-        )
+        if user_data.method == "number":
+            await query.message.reply_text(
+                "Cool beans.\n"
+                "Now, how many tokes do you want to cut down per day?",
+                reply_markup=ReplyKeyboardRemove()
+            )
+        elif user_data.method == "percent":
+            await query.message.reply_text(
+                "Cool beans.\n"
+                "Now, what percentage of your daily tokes do you want to cut down?",
+                reply_markup=ReplyKeyboardRemove()
+            )
+        else:
+            raise ValueError("Invalid method selected.")
 
         return BotStates.GOAL
 
     async def finish_setup(self, up: Update, ctx: ContextTypes.DEFAULT_TYPE):
         """Finish the setup and confirm the user's choices."""
-        user = up.message.from_user
-        goal = up.message.text
-        user_data = self.user_data_store.setdefault(user.id, UserData(user.id))
-        user_data.goal = goal
+        user_data = self.user_data_store.setdefault(self._uid(up), UserData(user_id=self._uid(up)))
+        user_data.goal = up.message.text
 
         await up.message.reply_text(
             user_data.summary() + "\n"
-            "Great! Your setup is complete. You can start tracking your vaping reduction now.\n"
+            "Great! Your setup is complete.\n\n"
+            "We've saved your preferences:\n"
+            "You can start tracking your tokes.\n"
             "If you want to change anything, just send /setup again.",
             reply_markup=ReplyKeyboardRemove()
         )
@@ -100,7 +124,6 @@ class ConversationFlow:
         
     async def cancel(self, up:Update, ctx:ContextTypes.DEFAULT_TYPE):
         """Cancel the conversation."""
-        user = up.message.from_user
         await up.message.reply_text(
             "Setup cancelled. You can start again with /setup.",
             reply_markup=ReplyKeyboardRemove()
@@ -114,7 +137,7 @@ class ConversationFlow:
             states={
                 BotStates.TOKES: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.ask_stength)],
                 BotStates.STRENGTH: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.ask_method)],
-                BotStates.METHOD: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.ask_goal)],
+                BotStates.METHOD: [CallbackQueryHandler(self.ask_goal)],
                 BotStates.GOAL: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.finish_setup)],
             },
             fallbacks=[CommandHandler("cancel", self.cancel)],
