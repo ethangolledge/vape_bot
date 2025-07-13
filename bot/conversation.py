@@ -13,24 +13,19 @@ from telegram.ext import (
     MessageHandler,
     filters
 )
-from telegram.constants import ParseMode
+from telegram.constants import ParseMode # to be used eventually
 
-from .models import UserData
+from .models import SessionData
 from .states import BotStates
 
 class ConversationFlow:
     def __init__(self) -> None:
         """Initialise the bot and set up the relevant classes."""
-        self.user_data_store = {}
-        
-    @staticmethod
-    def _uid(up: Update) -> int  | None:
-        return up.effective_user.id if up.effective_user else None
+        self.user_setup_data = {}
+    def _get_session(self, up: Update) -> SessionData:
+        """Get the session data from the update."""
+        return SessionData.from_update(up)
 
-    @staticmethod
-    def _uname(up: Update) -> str | None:
-        return up.effective_user.first_name if up.effective_user else None
-    
     """The below functions are used to handle the setup process"""
     """Eventually, when we have a database, this will be used to store the user data.
        I'd like to add functionality to check whether they have set up and whether they want to overwrite their data."""
@@ -38,34 +33,53 @@ class ConversationFlow:
     async def ask_tokes(self, up:Update, ctx:ContextTypes.DEFAULT_TYPE):
         """This is the entry function to setup.
            Provides a breif explaination of the setup process and also how many tokes the user has a day."""
-        await up.message.reply_text(
-            f"Hi {self._uname(up)}, welcome to the setup!\n"
-            "Let's get started with some questions.\n"
-            "You can cancel at any time by sending /cancel.\n\n"
-            "Please tell me how many tokeskis you have a day.\n"
-            "Don't be telling no porkies!\n"
-            "This number will be used to calculate your reduction plan.\n",
-            reply_markup=ReplyKeyboardRemove()
-        )
-        return BotStates.TOKES
+        """Reckon we also need to handle whether the user is in a group or not, a bot etc. Few things to consider."""
+        try:
+            user_data = SessionData.from_update(up)
+
+            if user_data.user.uid is None or user_data.cid is None:
+                raise ValueError("User ID or Chat ID not found in the update.")
+            # Initialise the user id key within the session to temp store data
+            self.user_session_data[user_data.user.uid] = user_data
+
+            await up.message.reply_text(
+                f"Hi {user_data.uname}, welcome to the setup!\n"
+                "Let's get started with some questions.\n"
+                "You can cancel at any time by sending /cancel.\n\n"
+                "Please tell me how many tokeskis you have a day.\n"
+                "Don't be telling no porkies!\n"
+                "This number will be used to calculate your reduction plan.\n",
+                reply_markup=ReplyKeyboardRemove()
+            )
+            return BotStates.TOKES
+        except Exception as e:
+            print(f"Error in ask_tokes: {e}")
 
     async def ask_stength(self, up:Update, ctx:ContextTypes.DEFAULT_TYPE):
         """Ask the user the strengh of nicotine they use."""
-        user_data = self.user_data_store.setdefault(self._uid(up), UserData(user_id=self._uid(up)))
-        user_data.tokes = up.message.text
+        try:
+            user_data = SessionData.from_update(up)
+            if user_data is None:
+                raise ValueError("User data not found in the update.")
+            
+            # Store the response in the user session
+            # We are gonna have to apply some sort of validation/parsing here
+            user_data.tokes = up.message.text
 
-        await up.message.reply_text(
-            "Sickna mate.\n"
-            "Now, what stength nicotine are you chomping through?\n"
-            "For example, 3mg, 6mg, 12mg, etc.\n\n",
-            reply_markup=ReplyKeyboardRemove()
-        )
+            await up.message.reply_text(
+                "Sickna mate.\n"
+                "Now, what stength nicotine are you chomping through?\n"
+                "For example, 3mg, 6mg, 12mg, etc.\n\n",
+                reply_markup=ReplyKeyboardRemove()
+            )
 
-        return BotStates.STRENGTH
+            return BotStates.STRENGTH
+        except Exception as e:
+            print(f"Error in ask_strength: {e}")
 
     async def ask_method(self, up:Update, ctx:ContextTypes.DEFAULT_TYPE):
         """Ask the user how they want to reduce their vaping."""
-        user_data = self.user_data_store.setdefault(self._uid(up), UserData(user_id=self._uid(up)))
+        user_data = self.user_session_data.setdefault(self._uid(up), UserData(user_id=self._uid(up)))
         # Store the data prompted by the previous function, this follows the same pattern for latter functions
         user_data.strength = up.message.text
 
@@ -90,7 +104,7 @@ class ConversationFlow:
         query = up.callback_query
         await query.answer()
 
-        user_data = self.user_data_store.setdefault(self._uid(up), UserData(user_id=self._uid(up)))
+        user_data = self.user_session_data.setdefault(self._uid(up), UserData(user_id=self._uid(up)))
         user_data.method = query.data
 
         if user_data.method == "number":
@@ -112,7 +126,7 @@ class ConversationFlow:
 
     async def setup_finish(self, up: Update, ctx: ContextTypes.DEFAULT_TYPE):
         """Finish the setup and confirm the user's choices."""
-        user_data = self.user_data_store.setdefault(self._uid(up), UserData(user_id=self._uid(up)))
+        user_data = self.user_session_data.setdefault(self._uid(up), UserData(user_id=self._uid(up)))
         user_data.goal = up.message.text
 
         await up.message.reply_text(
