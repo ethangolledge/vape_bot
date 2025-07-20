@@ -20,14 +20,16 @@ from .states import BotStates
 
 class ConversationFlow:
     def __init__(self) -> None:
-        """Initialize the conversation flow with session management"""
+        """Initialise the conversation flow with session management"""
         self.session_manager = SessionManager()
         self.extractor = TelegramExtractor()
 
     async def ask_tokes(self, up: Update, ctx: ContextTypes.DEFAULT_TYPE):
         try:
-            # Just ensure session exists
-            self.session_manager.get_session(up)
+            # Ensure session exists
+            session = self.session_manager.get_session(up)
+            # Initialise setup data separately
+            self.session_manager.get_setup_data(session.uid)
 
             await up.message.reply_text(
                 "Hi! Let's start setup.\n"
@@ -47,7 +49,7 @@ class ConversationFlow:
             if not user_input:
                 raise ValueError("Missing message text.")
             
-            # Store the user's input
+            # Store the user's input in setup data
             self.session_manager.update_setup_field(session.uid, "tokes", user_input)
 
             await up.message.reply_text(
@@ -116,9 +118,12 @@ class ConversationFlow:
             self.session_manager.update_setup_field(session.uid, "goal", user_input)
             
             # Get the complete setup data for storage/processing
-            setup_data = self.session_manager.get_setup_data(session.uid)
+            setup_data = self.session_manager.get_setup_for_storage(session.uid)
             
-            # TODO: Here you would store setup_data to your persistent storage
+            if not setup_data:
+                raise ValueError("Setup data not found")
+
+            # TODO: Here I'll add logic to store setup_data
             # await self.storage_service.save_user_setup(session.uid, setup_data)
 
             await up.message.reply_text(

@@ -3,7 +3,7 @@ from dotenv import load_dotenv
 from telegram.ext import Application
 from .handlers import register_handlers
 
-class TeleBot:
+class vape_bot:
     def __init__(self):
         load_dotenv()
         token = os.getenv("TOKEN")
@@ -12,3 +12,4 @@ class TeleBot:
 
     def run(self):
         self.app.run_polling()
+    

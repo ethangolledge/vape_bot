@@ -6,8 +6,8 @@ class TelegramExtractor:
     """Extracts data from Telegram Updates"""
     
     @staticmethod
-    def extract_user(update: Update) -> UserProfile:
-        user = update.effective_user
+    def extract_user(up: Update) -> UserProfile:
+        user = up.effective_user
         return UserProfile(
             user_id=user.id,
             is_bot=user.is_bot,
@@ -18,8 +18,8 @@ class TelegramExtractor:
         )
     
     @staticmethod
-    def extract_chat(update: Update) -> ChatContext:
-        chat = update.effective_chat
+    def extract_chat(up: Update) -> ChatContext:
+        chat = up.effective_chat
         return ChatContext(
             chat_id=chat.id,
             chat_type=chat.type,
@@ -30,8 +30,8 @@ class TelegramExtractor:
         )
     
     @staticmethod
-    def extract_message(update: Update) -> MessageMetadata:
-        message = update.message or (update.callback_query.message if update.callback_query else None)
+    def extract_message(up: Update) -> MessageMetadata:
+        message = up.message or (up.callback_query.message if up.callback_query else None)
         return MessageMetadata(
             message_id=getattr(message, 'message_id', None),
             reply=getattr(message, 'text', None),
@@ -43,19 +43,19 @@ class TelegramExtractor:
         )
     
     @staticmethod
-    def extract_current_message_text(update: Update) -> Optional[str]:
+    def extract_current_message_text(up: Update) -> Optional[str]:
         """Get current message text without storing it"""
-        if update.callback_query:
-            return update.callback_query.data
-        elif update.message:
-            return update.message.text
+        if up.callback_query:
+            return up.callback_query.data
+        elif up.message:
+            return up.message.text
         return None
     
     @staticmethod
-    def create_session(update: Update) -> SessionData:
-        """Create complete session from update"""
+    def create_session(up: Update) -> SessionData:
+        """Create complete session from update (Telegram data only)"""
         return SessionData(
-            user=TelegramExtractor.extract_user(update),
-            chat=TelegramExtractor.extract_chat(update),
-            message=TelegramExtractor.extract_message(update),
+            user=TelegramExtractor.extract_user(up),
+            chat=TelegramExtractor.extract_chat(up),
+            message=TelegramExtractor.extract_message(up),
         )
