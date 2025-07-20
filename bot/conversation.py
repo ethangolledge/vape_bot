@@ -13,38 +13,21 @@ from telegram.ext import (
     MessageHandler,
     filters
 )
-from telegram.constants import ParseMode # to be used eventually
 
-from .models import SessionData
+from .session_manager import SessionManager
+from .extractors import TelegramExtractor
 from .states import BotStates
 
 class ConversationFlow:
     def __init__(self) -> None:
-        """Initialise the bot and store user setup sessions."""
-        self.user_setup_data = {}
-
-    def _get_session(self, up: Update) -> SessionData:
-        """Get or create the session data from the update."""
-        uid = up.effective_user.id if up.effective_user else None
-        if uid in self.user_setup_data:
-            return self.user_setup_data[uid]
-        
-        session = SessionData.from_update(up)
-        if session.uid is None or session.cid is None:
-            raise ValueError("Invalid session data: missing user or chat ID.")
-        
-        self.user_setup_data[session.uid] = session
-        return session
-
-    def _update_setup(self, up: Update, field: str, value: str):
-        """Helper to update a single setup field and persist it."""
-        session = self._get_session(up)
-        setattr(session.setup, field, value)
-        self.user_setup_data[session.uid] = session
+        """Initialize the conversation flow with session management"""
+        self.session_manager = SessionManager()
+        self.extractor = TelegramExtractor()
 
     async def ask_tokes(self, up: Update, ctx: ContextTypes.DEFAULT_TYPE):
         try:
-            self._get_session(up)  # ensures session is created/stored
+            # Just ensure session exists
+            self.session_manager.get_session(up)
 
             await up.message.reply_text(
                 "Hi! Let's start setup.\n"
@@ -54,12 +37,18 @@ class ConversationFlow:
             return BotStates.TOKES
         except Exception as e:
             print(f"Error in ask_tokes: {e}")
+            return ConversationHandler.END
 
-    async def ask_stength(self, up: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    async def ask_strength(self, up: Update, ctx: ContextTypes.DEFAULT_TYPE):
         try:
-            if not up.message or not up.message.text:
+            session = self.session_manager.get_session(up)
+            user_input = self.extractor.extract_current_message_text(up)
+            
+            if not user_input:
                 raise ValueError("Missing message text.")
-            self._update_setup(up, "tokes", up.message.text)
+            
+            # Store the user's input
+            self.session_manager.update_setup_field(session.uid, "tokes", user_input)
 
             await up.message.reply_text(
                 "Sickna mate.\n"
@@ -68,13 +57,18 @@ class ConversationFlow:
             )
             return BotStates.STRENGTH
         except Exception as e:
-            print(f"Error in ask_stength: {e}")
+            print(f"Error in ask_strength: {e}")
+            return ConversationHandler.END
 
     async def ask_method(self, up: Update, ctx: ContextTypes.DEFAULT_TYPE):
         try:
-            if not up.message or not up.message.text:
+            session = self.session_manager.get_session(up)
+            user_input = self.extractor.extract_current_message_text(up)
+            
+            if not user_input:
                 raise ValueError("Missing message text.")
-            self._update_setup(up, "strength", up.message.text)
+            
+            self.session_manager.update_setup_field(session.uid, "strength", user_input)
 
             keyboard = [
                 [InlineKeyboardButton("By A Set Number", callback_data="number")],
@@ -88,16 +82,20 @@ class ConversationFlow:
             return BotStates.METHOD
         except Exception as e:
             print(f"Error in ask_method: {e}")
+            return ConversationHandler.END
 
     async def ask_goal(self, up: Update, ctx: ContextTypes.DEFAULT_TYPE):
         try:
+            session = self.session_manager.get_session(up)
             query = up.callback_query
+            
             if not query:
                 raise ValueError("Missing callback query.")
+            
             await query.answer()
-
-            self._update_setup(up, "method", query.data)
-
+            
+            self.session_manager.update_setup_field(session.uid, "method", query.data)
+            
             prompt = "How many tokes do you want to cut down per day?" if query.data == "number" else \
                      "What percentage of your daily tokes do you want to cut down?"
 
@@ -105,21 +103,32 @@ class ConversationFlow:
             return BotStates.GOAL
         except Exception as e:
             print(f"Error in ask_goal: {e}")
+            return ConversationHandler.END
 
     async def setup_finish(self, up: Update, ctx: ContextTypes.DEFAULT_TYPE):
         try:
-            if not up.message or not up.message.text:
+            session = self.session_manager.get_session(up)
+            user_input = self.extractor.extract_current_message_text(up)
+            
+            if not user_input:
                 raise ValueError("Missing message text.")
-            self._update_setup(up, "goal", up.message.text)
+            
+            self.session_manager.update_setup_field(session.uid, "goal", user_input)
+            
+            # Get the complete setup data for storage/processing
+            setup_data = self.session_manager.get_setup_data(session.uid)
+            
+            # TODO: Here you would store setup_data to your persistent storage
+            # await self.storage_service.save_user_setup(session.uid, setup_data)
 
-            session = self._get_session(up)
             await up.message.reply_text(
-                session.summary() + "\nSetup complete! Send /setup to change anything.",
+                setup_data.summary() + "\nSetup complete! Send /setup to change anything.",
                 reply_markup=ReplyKeyboardRemove()
             )
             return ConversationHandler.END
         except Exception as e:
             print(f"Error in setup_finish: {e}")
+            return ConversationHandler.END
 
     async def cancel(self, up: Update, ctx: ContextTypes.DEFAULT_TYPE):
         try:
@@ -130,13 +139,14 @@ class ConversationFlow:
             return ConversationHandler.END
         except Exception as e:
             print(f"Error in cancel: {e}")
+            return ConversationHandler.END
 
     def setup_build(self) -> ConversationHandler:
         """Constructs and returns the setup conversation handler."""
         return ConversationHandler(
             entry_points=[CommandHandler("setup", self.ask_tokes)],
             states={
-                BotStates.TOKES: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.ask_stength)],
+                BotStates.TOKES: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.ask_strength)],
                 BotStates.STRENGTH: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.ask_method)],
                 BotStates.METHOD: [CallbackQueryHandler(self.ask_goal)],
                 BotStates.GOAL: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.setup_finish)],
