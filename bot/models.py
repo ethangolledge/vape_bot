@@ -34,12 +34,28 @@ class MessageMetadata:
     reply_to_message_id: Optional[int] = None
 
 @dataclass
-class SetupAnswers:
-    """User setup configuration data"""
+class SetupData:
+    """Independent user setup configuration data"""
     tokes: Optional[str] = None
     strength: Optional[str] = None
     method: Optional[str] = None
     goal: Optional[str] = None
+    
+    def is_complete(self) -> bool:
+        """Check if all required setup fields are completed"""
+        return all([self.tokes, self.strength, self.method, self.goal])
+    
+    def is_valid(self) -> bool:
+        """Validate setup data consistency"""
+        if not self.is_complete():
+            return False
+        
+        # Validate method is one of expected values
+        if self.method not in ['number', 'percent']:
+            return False
+            
+        # Add other validation as needed
+        return True
     
     def summary(self) -> str:
         """Format setup data for display"""
@@ -49,14 +65,35 @@ class SetupAnswers:
             f"Method: {self.method.capitalize() if self.method else 'Not set'}\n"
             f"Goal: {(self.goal + '%') if self.goal and self.method == 'percent' else self.goal or 'Not set'}"
         )
+    
+    def to_dict(self) -> dict:
+        """Convert to dictionary for serialization"""
+        return {
+            'tokes': self.tokes,
+            'strength': self.strength,
+            'method': self.method,
+            'goal': self.goal
+        }
+    
+    @classmethod
+    def from_dict(cls, data: dict) -> 'SetupData':
+        """Create instance from dictionary"""
+        return cls(
+            tokes=data.get('tokes'),
+            strength=data.get('strength'),
+            method=data.get('method'),
+            goal=data.get('goal')
+        )
+
+# Backward compatibility alias
+SetupAnswers = SetupData
 
 @dataclass
 class SessionData:
-    """Complete session data"""
+    """Telegram session metadata only"""
     user: UserProfile
     chat: ChatContext
     message: MessageMetadata
-    setup: SetupAnswers = field(default_factory=SetupAnswers)
     created_at: datetime = field(default_factory=datetime.now)
     
     @property
