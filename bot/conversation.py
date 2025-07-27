@@ -1,5 +1,4 @@
 from telegram import (
-    ReplyKeyboardMarkup,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     ReplyKeyboardRemove, 
@@ -14,25 +13,55 @@ from telegram.ext import (
     filters
 )
 
-from .session_manager import SessionManager
 from .extractors import TelegramExtractor
 from .states import BotStates
+from .setup_manager import SetupManager
 
 class ConversationFlow:
     def __init__(self) -> None:
         """Initialise the conversation flow with session management"""
-        self.session_manager = SessionManager()
         self.extractor = TelegramExtractor()
+        self.setup = SetupManager()
+
+    async def start_command(self, up: Update, ctx: ContextTypes.DEFAULT_TYPE):
+        """A simple hello command to start the bot"""
+        try:
+            session = self.extractor.session(up)
+            await up.message.reply_text(
+                f"Hello {session.uname}! I'm your vape bot.\n"
+                "Here is a list of commands you can use:\n"
+                "/setup - Start the setup process\n"
+                "/cancel - Cancel the current operation",
+                reply_markup=ReplyKeyboardRemove()
+            )
+        except Exception as e:
+            print(f"Error in start command: {e}")
+            await up.message.reply_text("An error occurred during the start command.")
+    
+    async def help_command(self, up: Update, ctx: ContextTypes.DEFAULT_TYPE):
+        """A simple help command to show available commands"""
+        try:
+            session = self.extractor.session(up)
+            await up.message.reply_text(
+                f"Hello {session.uname}! Here are the commands you can use:\n"
+                "/setup - Start or modify the setup for tracking and goals\n"
+                "/cancel - This is available in conversations.Such as when you are in the setup\n",
+                reply_markup=ReplyKeyboardRemove()
+            )
+        except Exception as e:
+            print(f"Error in help command: {e}")
+            await up.message.reply_text("An error occurred during the help command.")
 
     async def ask_tokes(self, up: Update, ctx: ContextTypes.DEFAULT_TYPE):
+        """The below is the entry point for the setup conversation"""
         try:
-            # Ensure session exists
-            session = self.session_manager.get_session(up)
-            # Initialise setup data separately
-            self.session_manager.get_setup_data(session.uid)
+            # ensure session exists
+            session = self.extractor.session(up)
+            # initialise setup data separately
+            self.setup.get_setup(session.uid)
 
             await up.message.reply_text(
-                "Hi! Let's start setup.\n"
+                f"Hi {session.uname}! Let's start setup.\n"
                 "How many tokes do you have a day?",
                 reply_markup=ReplyKeyboardRemove()
             )
@@ -43,14 +72,14 @@ class ConversationFlow:
 
     async def ask_strength(self, up: Update, ctx: ContextTypes.DEFAULT_TYPE):
         try:
-            session = self.session_manager.get_session(up)
+            session = self.extractor.session(up)
             user_input = self.extractor.extract_current_message_text(up)
             
             if not user_input:
                 raise ValueError("Missing message text.")
             
             # Store the user's input in setup data
-            self.session_manager.update_setup_field(session.uid, "tokes", user_input)
+            self.setup.update_setup_field(session.uid, "tokes", user_input)
 
             await up.message.reply_text(
                 "Sickna mate.\n"
@@ -64,13 +93,13 @@ class ConversationFlow:
 
     async def ask_method(self, up: Update, ctx: ContextTypes.DEFAULT_TYPE):
         try:
-            session = self.session_manager.get_session(up)
+            session = self.extractor.session(up)
             user_input = self.extractor.extract_current_message_text(up)
             
             if not user_input:
                 raise ValueError("Missing message text.")
             
-            self.session_manager.update_setup_field(session.uid, "strength", user_input)
+            self.setup.update_setup_field(session.uid, "strength", user_input)
 
             keyboard = [
                 [InlineKeyboardButton("By A Set Number", callback_data="number")],
@@ -88,7 +117,7 @@ class ConversationFlow:
 
     async def ask_goal(self, up: Update, ctx: ContextTypes.DEFAULT_TYPE):
         try:
-            session = self.session_manager.get_session(up)
+            session = self.extractor.session(up)
             query = up.callback_query
             
             if not query:
@@ -96,7 +125,7 @@ class ConversationFlow:
             
             await query.answer()
             
-            self.session_manager.update_setup_field(session.uid, "method", query.data)
+            self.setup.update_setup_field(session.uid, "method", query.data)
             
             prompt = "How many tokes do you want to cut down per day?" if query.data == "number" else \
                      "What percentage of your daily tokes do you want to cut down?"
@@ -109,21 +138,21 @@ class ConversationFlow:
 
     async def setup_finish(self, up: Update, ctx: ContextTypes.DEFAULT_TYPE):
         try:
-            session = self.session_manager.get_session(up)
+            session = self.extractor.session(up)
             user_input = self.extractor.extract_current_message_text(up)
             
             if not user_input:
                 raise ValueError("Missing message text.")
             
-            self.session_manager.update_setup_field(session.uid, "goal", user_input)
+            self.setup.update_setup_field(session.uid, "goal", user_input)
             
             # Get the complete setup data for storage/processing
-            setup_data = self.session_manager.get_setup_for_storage(session.uid)
+            setup_data = self.setup.get_setup_for_storage(session.uid)
             
             if not setup_data:
                 raise ValueError("Setup data not found")
 
-            # TODO: Here I'll add logic to store setup_data
+            # Here I'll add logic to store setup_data
             # await self.storage_service.save_user_setup(session.uid, setup_data)
 
             await up.message.reply_text(
@@ -146,6 +175,15 @@ class ConversationFlow:
             print(f"Error in cancel: {e}")
             return ConversationHandler.END
 
+    
+    def start(self) -> CommandHandler:
+        """Constructs and returns the start command handler."""
+        return CommandHandler("start", self.start_command)
+    
+    def help(self) -> CommandHandler:
+        """Constructs and returns the help command handler."""
+        return CommandHandler("help", self.help_command)
+    
     def setup_build(self) -> ConversationHandler:
         """Constructs and returns the setup conversation handler."""
         return ConversationHandler(

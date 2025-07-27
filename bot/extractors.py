@@ -44,7 +44,8 @@ class TelegramExtractor:
     
     @staticmethod
     def extract_current_message_text(up: Update) -> Optional[str]:
-        """Get current message text without storing it"""
+        """Get current message text without storing it
+        Also simplifies callback query data extraction"""
         if up.callback_query:
             return up.callback_query.data
         elif up.message:
@@ -52,10 +53,11 @@ class TelegramExtractor:
         return None
     
     @staticmethod
-    def create_session(up: Update) -> SessionData:
+    def session(up: Update) -> SessionData:
         """Create complete session from update (Telegram data only)"""
         return SessionData(
             user=TelegramExtractor.extract_user(up),
             chat=TelegramExtractor.extract_chat(up),
             message=TelegramExtractor.extract_message(up),
         )
+    

@@ -1,4 +1,4 @@
-from bot.app import TeleBot
+from bot.app import VapeBot
 
 if __name__ == "__main__":
-    TeleBot().run()
+    VapeBot().run()

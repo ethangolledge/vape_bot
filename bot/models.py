@@ -55,17 +55,12 @@ class SessionData:
     
 @dataclass
 class SetupData:
-    """Abstract setup data - user responses only, independent of Telegram"""
     tokes: Optional[str] = None
     strength: Optional[str] = None
     method: Optional[str] = None
     goal: Optional[str] = None
     created_at: datetime = field(default_factory=datetime.now)
     updated_at: datetime = field(default_factory=datetime.now)
-    
-    def is_complete(self) -> bool:
-        """Check if all required setup fields are filled"""
-        return all([self.tokes, self.strength, self.method, self.goal])
     
     def summary(self) -> str:
         """Format setup data for display"""
@@ -77,7 +72,7 @@ class SetupData:
         )
     
     def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for storage/serialization"""
+        """Convert to dictionary for storage"""
         return {
             'tokes': self.tokes,
             'strength': self.strength,
@@ -86,15 +81,3 @@ class SetupData:
             'created_at': self.created_at.isoformat(),
             'updated_at': self.updated_at.isoformat()
         }
-    
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'SetupData':
-        """Create from dictionary (for loading from storage)"""
-        return cls(
-            tokes=data.get('tokes'),
-            strength=data.get('strength'),
-            method=data.get('method'),
-            goal=data.get('goal'),
-            created_at=datetime.fromisoformat(data.get('created_at', datetime.now().isoformat())),
-            updated_at=datetime.fromisoformat(data.get('updated_at', datetime.now().isoformat()))
-        )

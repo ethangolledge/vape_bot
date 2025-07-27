@@ -3,7 +3,7 @@ from dotenv import load_dotenv
 from telegram.ext import Application
 from .handlers import register_handlers
 
-class vape_bot:
+class VapeBot:
     def __init__(self):
         load_dotenv()
         token = os.getenv("TOKEN")
