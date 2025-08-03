@@ -15,4 +15,9 @@ class SetupManager:
         """Update a field in the setup data"""
         setup = self.get_setup(user_id)
         setattr(setup, field, value)
-        return setup
+        return setup 
+
+    def dict_data(self, user_id: int) -> Dict[str, str]:
+        """Get the setup data as a dictionary"""
+        setup = self.get_setup(user_id)
+        return setup.to_dict()

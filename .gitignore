@@ -1,8 +1,8 @@
 .env
-/data
 /analytics
 /tests
 requirements.txt
 *.pyc
 __pycache__
 *.log
+*.duckdb
