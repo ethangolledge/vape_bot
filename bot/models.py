@@ -2,7 +2,7 @@ from dataclasses import dataclass, field, asdict
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 from telegram import Update, MessageEntity
-import logging
+import re
 
 @dataclass
 class UserProfile:
@@ -64,63 +64,118 @@ class SetupData:
     created_at: datetime = field(default_factory=datetime.now)
     updated_at: datetime = field(default_factory=datetime.now)
 
+class DataParser:
+    """Utility class for parsing and validating different types."""
+
+    @staticmethod
+    def to_int(value: Any) -> int:
+        """parse integers from strings, floats, or other types."""
+        if value is None:
+            raise ValueError("Integer value cannot be None")
+        if isinstance(value, int):
+            return value
+        if isinstance(value, float):
+            return int(round(value))
+        if isinstance(value, str):
+            match = re.search(r'-?\d+', value)  # allow negative numbers
+            if match:
+                return int(match.group())
+            raise ValueError(f"No integer found in string '{value}'")
+        raise ValueError(f"Cannot convert {type(value)} to int")
+
+    @staticmethod
+    def to_float(value: Any) -> float:
+        """parse floats from strings, ints, or other types."""
+        if value is None:
+            raise ValueError("Float value cannot be None")
+        if isinstance(value, float):
+            return value
+        if isinstance(value, int):
+            return float(value)
+        if isinstance(value, str):
+            match = re.search(r'-?\d+(\.\d+)?', value.replace(',', ''))
+            if match:
+                return float(match.group())
+            raise ValueError(f"No float found in string '{value}'")
+        raise ValueError(f"Cannot convert {type(value)} to float")
+
+    @staticmethod
+    def to_str(value: Any) -> str:
+        """ensure the value is a string and strip whitespace."""
+        if value is None:
+            raise ValueError("String value cannot be None")
+        return str(value).strip()
+
+    @staticmethod
+    def to_datetime(value: Any) -> datetime:
+        """parse datetime from string"""
+        if isinstance(value, datetime):
+            return value
+        if isinstance(value, str):
+            try:
+                return datetime.fromisoformat(value)
+            except ValueError:
+                raise ValueError(f"Cannot parse datetime from string '{value}'")
+        raise ValueError(f"Cannot convert {type(value)} to datetime")
+    
+    @classmethod
+    def enforce_type(cls, field_type: type, value: Any, field_name: str) -> Any:
+        """Dispatch to correct type parser"""
+        if field_type in (int, Optional[int]):
+            return cls.to_int(value, field_name)
+        if field_type in (float, Optional[float]):
+            return cls.to_float(value, field_name)
+        if field_type in (str, Optional[str]):
+            return cls.to_str(value, field_name)
+        if field_type in (datetime, Optional[datetime]):
+            return cls.to_datetime(value, field_name)
+        return value
+
 class SetupManager:
     def __init__(self):
         self.setups: Dict[int, SetupData] = {}
+        self.parser = DataParser()  # type enforcement lives here
         self.goal_field_map = {
             "number": "reduce_amount", 
             "percent": "reduce_percent"
-            } # mapping for later calculation
-    
+        }
+
     def __calc_metric__(self, numerator: float, denominator: float, to_amount: bool = False) -> Optional[float]:
         """dunder method to calculate either percentage or absolute amount"""
         if denominator == 0:
             return None
         return round((numerator / 100 * denominator) if to_amount else (numerator / denominator * 100), 2)
 
-    def enforce_type(self, field: str, value) -> SetupData:
-        """enforce the datatype specified within the dataclass"""
-        field_types = SetupData.__annotations__
-        expected_type = field_types.get(field)
-
-        if expected_type is None:
-            raise ValueError(f"Field '{field}' does not exist in SetupData.")
-        
-        try:
-            if expected_type in (Optional[int], int):
-                return int(value) if value is not None else None
-            elif expected_type in (Optional[float], float):
-                if isinstance(value, str) and value.endswith("%"):
-                    return float(value.strip("%"))
-                return float(value) if value is not None else None
-            elif expected_type in (Optional[str], str):
-                return str(value) if value is not None else None
-            elif expected_type in (Optional[datetime], datetime):
-                if isinstance(value, datetime):
-                    return value
-                return datetime.fromisoformat(value)
-            else:
-                return value  # fallback, may need to come back to this
-        except Exception as e:
-            raise ValueError(f"Invalid value for {field}. Expected {expected_type}, got {type(value)}")
-
     def get_setup(self, user_id: int) -> SetupData:
         if user_id not in self.setups:
             self.setups[user_id] = SetupData()
         return self.setups[user_id]
-    
+
     def update_setup_field(self, user_id: int, field: str, value) -> SetupData:
-        """Update a user’s setup field with type enforcement and single metric calculation."""
+        """update a user’s setup field with parsing and metric calculation"""
         setup = self.get_setup(user_id)
 
+        # handle goal mapping
         if field == "goal":
             if not setup.method:
                 raise ValueError("Method must be set before setting a goal.")
             field = self.goal_field_map[setup.method]
 
-        value = self.enforce_type(field, value)
+        # parse value according to target type
+        if field in ("reduce_amount", "tokes"):
+            value = self.parser.to_int(value)
+        elif field == "reduce_percent":
+            value = self.parser.to_float(value)
+        elif field == "strength":
+            value = self.parser.to_int(value)
+        elif field in ("method",):
+            value = str(value)
+        elif field in ("created_at", "updated_at"):
+            value = value if isinstance(value, datetime) else datetime.fromisoformat(value)
+
         setattr(setup, field, value)
 
+        # recalc complementary metric
         if setup.tokes and setup.method:
             if setup.method == "number" and setup.reduce_amount is not None:
                 setup.reduce_percent = self.__calc_metric__(setup.reduce_amount, setup.tokes)
@@ -131,17 +186,17 @@ class SetupManager:
         return setup
 
     def setup_dict(self, user_id: int) -> Dict[int, Dict]:
-        """return setup data as a dict, either for data processing or other purposes"""
         setup = self.get_setup(user_id)
         return {user_id: asdict(setup)}
-    
+
     def summary(self, user_id: int) -> str:
-        """format a summary for user confirmation"""
+        """format a summary for user confirmation with units"""
         setup = self.get_setup(user_id)
         return (
-            f"Tokes: {setup.tokes if setup.tokes is not None else 'Not set'}\n"
-            f"Strength: {setup.strength.capitalize() if setup.strength else 'Not set'}\n"
+            f"Tokes: {setup.tokes if setup.tokes is not None else 'Not set'} puffs\n"
+            f"Strength: {str(setup.strength) + 'mg' if setup.strength is not None else 'Not set'}\n"
             f"Method: {setup.method.capitalize() if setup.method else 'Not set'}\n"
-            f"Reduce Amount: {setup.reduce_amount if setup.reduce_amount is not None else 'Not set'}\n"
+            f"Reduce Amount: {setup.reduce_amount if setup.reduce_amount is not None else 'Not set'} puffs\n"
             f"Reduce Percent: {setup.reduce_percent if setup.reduce_percent is not None else 'Not set'}%"
         )
+
