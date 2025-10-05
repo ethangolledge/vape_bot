@@ -12,11 +12,9 @@ from telegram.ext import (
     MessageHandler,
     filters
 )
-import json
-from .data_transfer import DataTransfer
 from .extractors import TelegramExtractor
 from .states import BotStates
-from .setup_manager import SetupManager
+from .models import SetupManager
 
 class ConversationFlow:
     def __init__(self) -> None:
@@ -75,7 +73,6 @@ class ConversationFlow:
         try:
             session = self.extractor.session(up)
             user_input = self.extractor.extract_current_message_text(up)
-            
             if not user_input:
                 raise ValueError("Missing message text.")
             
@@ -148,22 +145,12 @@ class ConversationFlow:
             self.setup.update_setup_field(session.uid, "goal", user_input)
             
             # Get the complete setup data - use get_setup instead of get_setup_for_storage
-            setup_data = self.setup.get_setup(session.uid)
-            
-            if not setup_data:
-                raise ValueError("Setup data not found")
-            
-            data_transfer = DataTransfer(session.uid, self.setup.dict_data(session.uid))
-            data_transfer.transfer_data("user_setup")
+            if not self.setup.summary(session.uid):
+                raise ValueError("Setup data not found, cannot finish setup.")
 
-            #setup_dict = setup_data.to_dict()
-            #print(f"Setup data JSON: {json.dumps(setup_dict, indent=2)}")
-
-            # Here I'll add logic to store setup_data
-            # await self.storage_service.save_user_setup(session.uid, setup_data)
-
+            print(self.setup.setup_dict(session.uid))  # For debugging purposes
             await up.message.reply_text(
-                setup_data.summary() + "\nSetup complete! Send /setup to change anything.",
+                self.setup.summary(session.uid) + "\nSetup complete! Send /setup to change anything.",
                 reply_markup=ReplyKeyboardRemove()
             )
             return ConversationHandler.END

@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 from telegram import Update, MessageEntity
@@ -62,22 +62,36 @@ class SetupData:
     created_at: datetime = field(default_factory=datetime.now)
     updated_at: datetime = field(default_factory=datetime.now)
     
-    def summary(self) -> str:
-        """Format setup data for display"""
-        return (
-            f"Tokes: {self.tokes.capitalize() if self.tokes else 'Not set'}\n"
-            f"Strength: {self.strength.capitalize() if self.strength else 'Not set'}\n"
-            f"Method: {self.method.capitalize() if self.method else 'Not set'}\n"
-            f"Goal: {(self.goal + '%') if self.goal and self.method == 'percent' else self.goal or 'Not set'}"
-        )
+class SetupManager:
     
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for storage"""
-        return {
-            'tokes': self.tokes,
-            'strength': self.strength,
-            'method': self.method,
-            'goal': self.goal,
-            'created_at': self.created_at.isoformat(),
-            'updated_at': self.updated_at.isoformat()
-        }
+    def __init__(self):
+        # stuctures the setupdata class into a dictionary for clear management of data
+        self.setups: Dict[int, SetupData] = {}
+    
+    def get_setup(self, user_id: int) -> SetupData:
+        """using the dataclass, we assign a user_id to a setup instance"""
+        if user_id not in self.setups:
+            self.setups[user_id] = SetupData()
+        return self.setups[user_id]
+    
+    def update_setup_field(self, user_id: int, field: str, value: str) -> SetupData:
+        """update the field value for a given user_id, within the dictionary"""
+        setup = self.get_setup(user_id)
+        setattr(setup, field, value)
+        return setup 
+    
+    def setup_dict(self, user_id: int) -> Dict[str, str]:
+        """structure the setup data into a dictionary"""
+        setup = self.get_setup(user_id)
+        return {user_id: asdict(setup)} # this may seem redundant, but for flexibility for either data transfer or display, this is useful
+    
+    def summary(self, user_id: int) -> str:
+        """format for display within telegram"""
+        setup = self.setup_dict(user_id)
+        user_setup = setup[user_id]
+        return (
+            f"Tokes: {user_setup['tokes'].capitalize() if user_setup['tokes'] else 'Not set'}\n"
+            f"Strength: {user_setup['strength'].capitalize() if user_setup['strength'] else 'Not set'}\n"
+            f"Method: {user_setup['method'].capitalize() if user_setup['method'] else 'Not set'}\n"
+            f"Goal: {(user_setup['goal'] + '%') if user_setup['goal'] and user_setup['method'] == 'percent' else user_setup['goal'] or 'Not set'}"
+        )
