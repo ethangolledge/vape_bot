@@ -67,7 +67,17 @@ class SetupData:
 class SetupManager:
     def __init__(self):
         self.setups: Dict[int, SetupData] = {}
+        self.goal_field_map = {
+            "number": "reduce_amount", 
+            "percent": "reduce_percent"
+            } # mapping for later calculation
     
+    def __calc_metric__(self, numerator: float, denominator: float, to_amount: bool = False) -> Optional[float]:
+        """dunder method to calculate either percentage or absolute amount"""
+        if denominator == 0:
+            return None
+        return round((numerator / 100 * denominator) if to_amount else (numerator / denominator * 100), 2)
+
     def enforce_type(self, field: str, value) -> SetupData:
         """enforce the datatype specified within the dataclass"""
         field_types = SetupData.__annotations__
@@ -100,41 +110,33 @@ class SetupManager:
         return self.setups[user_id]
     
     def update_setup_field(self, user_id: int, field: str, value) -> SetupData:
-        """update a field value for a given user_id, with special handling for 'goal'."""
+        """Update a user’s setup field with type enforcement and single metric calculation."""
         setup = self.get_setup(user_id)
 
-        # within setup finsih, we only set reduce_amount or reduce_percent based on method, hence the following logic to calculate values
         if field == "goal":
-            if setup.method == "number":
-                field = "reduce_amount"
-            elif setup.method == "percent":
-                field = "reduce_percent"
-            else:
+            if not setup.method:
                 raise ValueError("Method must be set before setting a goal.")
+            field = self.goal_field_map[setup.method]
 
         value = self.enforce_type(field, value)
         setattr(setup, field, value)
 
-        # Recalculate complementary field
         if setup.tokes and setup.method:
-            if setup.method == "number" and setup.reduce_amount:
-                setup.reduce_percent = round(
-                    (setup.reduce_amount / setup.tokes) * 100, 2
-                )
-            elif setup.method == "percent" and setup.reduce_percent:
-                setup.reduce_amount = int(
-                    round((setup.reduce_percent / 100) * setup.tokes, 0)
-                )
+            if setup.method == "number" and setup.reduce_amount is not None:
+                setup.reduce_percent = self.__calc_metric__(setup.reduce_amount, setup.tokes)
+            elif setup.method == "percent" and setup.reduce_percent is not None:
+                setup.reduce_amount = int(self.__calc_metric__(setup.reduce_percent, setup.tokes, to_amount=True))
 
         setup.updated_at = datetime.now()
         return setup
-    
+
     def setup_dict(self, user_id: int) -> Dict[int, Dict]:
+        """return setup data as a dict, either for data processing or other purposes"""
         setup = self.get_setup(user_id)
         return {user_id: asdict(setup)}
     
     def summary(self, user_id: int) -> str:
-        """Format setup data for Telegram display"""
+        """format a summary for user confirmation"""
         setup = self.get_setup(user_id)
         return (
             f"Tokes: {setup.tokes if setup.tokes is not None else 'Not set'}\n"
