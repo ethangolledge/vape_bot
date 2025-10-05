@@ -36,7 +36,7 @@ class MessageMetadata:
 
 @dataclass
 class SessionData:
-    """Telegram-specific session data only"""
+    """telegram session data, this likely needs"""
     user: UserProfile
     chat: ChatContext
     message: MessageMetadata
@@ -54,6 +54,10 @@ class SessionData:
     def uname(self) -> str:
         return self.user.username if self.user.username else self.user.first_name
     
+    @property
+    def reply_text(self) -> Optional[str]:
+        return self.message.reply
+    
 @dataclass
 class SetupData:
     tokes: Optional[int] = None
@@ -65,8 +69,7 @@ class SetupData:
     updated_at: datetime = field(default_factory=datetime.now)
 
 class DataParser:
-    """Utility class for parsing and validating different types."""
-
+    """utility class for parsing and validating dtypes."""
     @staticmethod
     def to_int(value: Any) -> int:
         """parse integers from strings, floats, or other types."""

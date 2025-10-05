@@ -72,10 +72,14 @@ class ConversationFlow:
     async def ask_strength(self, up: Update, ctx: ContextTypes.DEFAULT_TYPE):
         try:
             session = self.extractor.session(up)
-            user_input = self.extractor.extract_current_message_text(up)
+            user_input = session.reply_text
             if not user_input:
-                raise ValueError("Missing message text.")
-            
+                raise ValueError(
+                    f"CID: {session.cid}\n"
+                    f"Message ID: {session.message.message_id}\n"
+                    f"Timestamp: {session.datetime}\n"
+                    f"Err: Missing message text"
+                )
             # Store the user's input in setup data
             self.setup.update_setup_field(session.uid, "tokes", user_input)
 
@@ -95,7 +99,11 @@ class ConversationFlow:
             user_input = self.extractor.extract_current_message_text(up)
             
             if not user_input:
-                raise ValueError("Missing message text.")
+                raise ValueError(f"CID: {session.cid}\n"
+                    f"Message ID: {session.message.message_id}\n"
+                    f"Timestamp: {session.datetime}\n"
+                    f"Err: Missing message text"
+                )
             
             self.setup.update_setup_field(session.uid, "strength", user_input)
 
@@ -119,7 +127,11 @@ class ConversationFlow:
             query = up.callback_query
             
             if not query:
-                raise ValueError("Missing callback query.")
+                raise ValueError(f"CID: {session.cid}\n"
+                    f"Message ID: {session.message.message_id}\n"
+                    f"Timestamp: {session.datetime}\n"
+                    f"Err: Missing callback query"
+                )
             
             await query.answer()
             
@@ -140,7 +152,11 @@ class ConversationFlow:
             user_input = self.extractor.extract_current_message_text(up)
             
             if not user_input:
-                raise ValueError("Missing message text.")
+                raise ValueError(f"CID: {session.cid}\n"
+                    f"Message ID: {session.message.message_id}\n"
+                    f"Timestamp: {session.datetime}\n"
+                    f"Err: Missing message text"
+                )
             
             self.setup.update_setup_field(session.uid, "goal", user_input)
             
@@ -148,7 +164,6 @@ class ConversationFlow:
             if not self.setup.summary(session.uid):
                 raise ValueError("Setup data not found, cannot finish setup.")
 
-            print(self.setup.setup_dict(session.uid))  # For debugging purposes
             await up.message.reply_text(
                 self.setup.summary(session.uid) + "\nSetup complete! Send /setup to change anything.",
                 reply_markup=ReplyKeyboardRemove()
