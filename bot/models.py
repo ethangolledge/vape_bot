@@ -2,6 +2,7 @@ from dataclasses import dataclass, field, asdict
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 from telegram import Update, MessageEntity
+import logging
 
 @dataclass
 class UserProfile:
@@ -55,43 +56,90 @@ class SessionData:
     
 @dataclass
 class SetupData:
-    tokes: Optional[str] = None
+    tokes: Optional[int] = None
     strength: Optional[str] = None
     method: Optional[str] = None
-    goal: Optional[str] = None
+    reduce_amount: Optional[int] = None
+    reduce_percent: Optional[float] = None
     created_at: datetime = field(default_factory=datetime.now)
     updated_at: datetime = field(default_factory=datetime.now)
-    
+
 class SetupManager:
-    
     def __init__(self):
-        # stuctures the setupdata class into a dictionary for clear management of data
         self.setups: Dict[int, SetupData] = {}
     
+    def enforce_type(self, field: str, value) -> SetupData:
+        """enforce the datatype specified within the dataclass"""
+        field_types = SetupData.__annotations__
+        expected_type = field_types.get(field)
+
+        if expected_type is None:
+            raise ValueError(f"Field '{field}' does not exist in SetupData.")
+        
+        try:
+            if expected_type in (Optional[int], int):
+                return int(value) if value is not None else None
+            elif expected_type in (Optional[float], float):
+                if isinstance(value, str) and value.endswith("%"):
+                    return float(value.strip("%"))
+                return float(value) if value is not None else None
+            elif expected_type in (Optional[str], str):
+                return str(value) if value is not None else None
+            elif expected_type in (Optional[datetime], datetime):
+                if isinstance(value, datetime):
+                    return value
+                return datetime.fromisoformat(value)
+            else:
+                return value  # fallback, may need to come back to this
+        except Exception as e:
+            raise ValueError(f"Invalid value for {field}. Expected {expected_type}, got {type(value)}")
+
     def get_setup(self, user_id: int) -> SetupData:
-        """using the dataclass, we assign a user_id to a setup instance"""
         if user_id not in self.setups:
             self.setups[user_id] = SetupData()
         return self.setups[user_id]
     
-    def update_setup_field(self, user_id: int, field: str, value: str) -> SetupData:
-        """update the field value for a given user_id, within the dictionary"""
+    def update_setup_field(self, user_id: int, field: str, value) -> SetupData:
+        """update a field value for a given user_id, with special handling for 'goal'."""
         setup = self.get_setup(user_id)
+
+        # within setup finsih, we only set reduce_amount or reduce_percent based on method, hence the following logic to calculate values
+        if field == "goal":
+            if setup.method == "number":
+                field = "reduce_amount"
+            elif setup.method == "percent":
+                field = "reduce_percent"
+            else:
+                raise ValueError("Method must be set before setting a goal.")
+
+        value = self.enforce_type(field, value)
         setattr(setup, field, value)
-        return setup 
+
+        # Recalculate complementary field
+        if setup.tokes and setup.method:
+            if setup.method == "number" and setup.reduce_amount:
+                setup.reduce_percent = round(
+                    (setup.reduce_amount / setup.tokes) * 100, 2
+                )
+            elif setup.method == "percent" and setup.reduce_percent:
+                setup.reduce_amount = int(
+                    round((setup.reduce_percent / 100) * setup.tokes, 0)
+                )
+
+        setup.updated_at = datetime.now()
+        return setup
     
-    def setup_dict(self, user_id: int) -> Dict[str, str]:
-        """structure the setup data into a dictionary"""
+    def setup_dict(self, user_id: int) -> Dict[int, Dict]:
         setup = self.get_setup(user_id)
-        return {user_id: asdict(setup)} # this may seem redundant, but for flexibility for either data transfer or display, this is useful
+        return {user_id: asdict(setup)}
     
     def summary(self, user_id: int) -> str:
-        """format for display within telegram"""
-        setup = self.setup_dict(user_id)
-        user_setup = setup[user_id]
+        """Format setup data for Telegram display"""
+        setup = self.get_setup(user_id)
         return (
-            f"Tokes: {user_setup['tokes'].capitalize() if user_setup['tokes'] else 'Not set'}\n"
-            f"Strength: {user_setup['strength'].capitalize() if user_setup['strength'] else 'Not set'}\n"
-            f"Method: {user_setup['method'].capitalize() if user_setup['method'] else 'Not set'}\n"
-            f"Goal: {(user_setup['goal'] + '%') if user_setup['goal'] and user_setup['method'] == 'percent' else user_setup['goal'] or 'Not set'}"
+            f"Tokes: {setup.tokes if setup.tokes is not None else 'Not set'}\n"
+            f"Strength: {setup.strength.capitalize() if setup.strength else 'Not set'}\n"
+            f"Method: {setup.method.capitalize() if setup.method else 'Not set'}\n"
+            f"Reduce Amount: {setup.reduce_amount if setup.reduce_amount is not None else 'Not set'}\n"
+            f"Reduce Percent: {setup.reduce_percent if setup.reduce_percent is not None else 'Not set'}%"
         )
