@@ -1,8 +1,9 @@
 from dataclasses import dataclass, field, asdict
-from typing import Optional, List, Dict, Any
+from typing import Callable, Optional, List, Dict, Any, TypeVar
 from datetime import datetime
-from telegram import Update, MessageEntity
+from telegram import MessageEntity
 import re
+
 
 @dataclass
 class UserProfile:
@@ -57,6 +58,10 @@ class SessionData:
     @property
     def reply_text(self) -> Optional[str]:
         return self.message.reply
+    
+    @property
+    def datetime(self) -> Optional[datetime]:
+        return self.message.timestamp
     
 @dataclass
 class SetupData:
@@ -134,63 +139,98 @@ class DataParser:
             return cls.to_datetime(value, field_name)
         return value
 
+class ModelManager:
+    """base class for model management operations"""
+
+    T = TypeVar('T')
+    @staticmethod
+    def update_model_field(
+        model_instance: T,
+        field: str, 
+        value: Any,
+        field_parsers: Dict[str, Callable[[Any], Any]],
+        post_update_hook: Callable[[T], None] = None
+    ) -> T:
+        """generic field updater for any model instance"""
+        parser = field_parsers.get(field, lambda x: x)
+        
+        try:
+            # parse and set value
+            parsed_value = parser(value)
+            setattr(model_instance, field, parsed_value)
+
+            # update timestamp
+            if hasattr(model_instance, 'updated_at'):
+                model_instance.updated_at = datetime.now()
+
+            # run any post-update operations
+            if post_update_hook:
+                post_update_hook(model_instance)
+
+            return model_instance
+    
+        except Exception as e:
+            raise ValueError(f"Error updating field '{field}': {e}")
+
+    @staticmethod    
+    def model_to_dict(model_instance: T) -> dict:
+        """convert a dataclass model instance to a dictionary"""
+        return asdict(model_instance)
+
 class SetupManager:
     def __init__(self):
         self.setups: Dict[int, SetupData] = {}
-        self.parser = DataParser()  # type enforcement lives here
+        self.parser = DataParser()
         self.goal_field_map = {
-            "number": "reduce_amount", 
+            "number": "reduce_amount",
             "percent": "reduce_percent"
+        }
+        self.field_parsers = {
+            "tokes": self.parser.to_int,
+            "strength": self.parser.to_int,
+            "method": self.parser.to_str,
+            "reduce_amount": self.parser.to_int,
+            "reduce_percent": self.parser.to_float,
+            'created_at': lambda v: v if isinstance(v, datetime) else datetime.fromisoformat(v),
+            'updated_at': lambda v: v if isinstance(v, datetime) else datetime.fromisoformat(v)
         }
 
     def __calc_metric__(self, numerator: float, denominator: float, to_amount: bool = False) -> Optional[float]:
-        """dunder method to calculate either percentage or absolute amount"""
+        """calculate either percentage or absolute amount"""
         if denominator == 0:
             return None
         return round((numerator / 100 * denominator) if to_amount else (numerator / denominator * 100), 2)
 
-    def get_setup(self, user_id: int) -> SetupData:
-        if user_id not in self.setups:
-            self.setups[user_id] = SetupData()
-        return self.setups[user_id]
-
-    def update_setup_field(self, user_id: int, field: str, value) -> SetupData:
-        """update a user’s setup field with parsing and metric calculation"""
-        setup = self.get_setup(user_id)
-
-        # handle goal mapping
-        if field == "goal":
-            if not setup.method:
-                raise ValueError("Method must be set before setting a goal.")
-            field = self.goal_field_map[setup.method]
-
-        # parse value according to target type
-        if field in ("reduce_amount", "tokes"):
-            value = self.parser.to_int(value)
-        elif field == "reduce_percent":
-            value = self.parser.to_float(value)
-        elif field == "strength":
-            value = self.parser.to_int(value)
-        elif field in ("method",):
-            value = str(value)
-        elif field in ("created_at", "updated_at"):
-            value = value if isinstance(value, datetime) else datetime.fromisoformat(value)
-
-        setattr(setup, field, value)
-
-        # recalc complementary metric
+    def _recalculate_metrics(self, setup: SetupData) -> None:
+        """post-update hook for recalculating metrics"""
         if setup.tokes and setup.method:
             if setup.method == "number" and setup.reduce_amount is not None:
                 setup.reduce_percent = self.__calc_metric__(setup.reduce_amount, setup.tokes)
             elif setup.method == "percent" and setup.reduce_percent is not None:
                 setup.reduce_amount = int(self.__calc_metric__(setup.reduce_percent, setup.tokes, to_amount=True))
 
-        setup.updated_at = datetime.now()
-        return setup
+    def get_setup(self, user_id: int) -> SetupData:
+        if user_id not in self.setups:
+            self.setups[user_id] = SetupData()
+        return self.setups[user_id]
 
-    def setup_dict(self, user_id: int) -> Dict[int, Dict]:
+    def update_setup_field(self, user_id: int, field: str, value: Any) -> SetupData:
+        """update a setup field using ModelManager"""
         setup = self.get_setup(user_id)
-        return {user_id: asdict(setup)}
+        
+        # handle goal mapping
+        if field == "goal":
+            if not setup.method:
+                raise ValueError("Method must be set before setting a goal.")
+            field = self.goal_field_map[setup.method]
+        
+        return ModelManager.update_model_field(
+            model_instance=setup,
+            field=field,
+            value=value,
+            field_parsers=self.field_parsers,
+            post_update_hook=self._recalculate_metrics
+        )
 
     def summary(self, user_id: int) -> str:
         """format a summary for user confirmation with units"""
