@@ -65,6 +65,7 @@ class SessionData:
     
 @dataclass
 class SetupData:
+    user_id: int
     tokes: Optional[int] = None
     strength: Optional[str] = None
     method: Optional[str] = None
@@ -129,15 +130,18 @@ class DataParser:
     @classmethod
     def enforce_type(cls, field_type: type, value: Any, field_name: str) -> Any:
         """Dispatch to correct type parser"""
-        if field_type in (int, Optional[int]):
-            return cls.to_int(value, field_name)
-        if field_type in (float, Optional[float]):
-            return cls.to_float(value, field_name)
-        if field_type in (str, Optional[str]):
-            return cls.to_str(value, field_name)
-        if field_type in (datetime, Optional[datetime]):
-            return cls.to_datetime(value, field_name)
-        return value
+        try:
+            if field_type in (int, Optional[int]):
+                return cls.to_int(value)
+            if field_type in (float, Optional[float]):
+                return cls.to_float(value)
+            if field_type in (str, Optional[str]):
+                return cls.to_str(value)
+            if field_type in (datetime, Optional[datetime]):
+                return cls.to_datetime(value)
+            return value
+        except ValueError as e:
+            raise ValueError(f"Error parsing {field_name}: {str(e)}")
 
 class ModelManager:
     """base class for model management operations"""
@@ -171,11 +175,6 @@ class ModelManager:
     
         except Exception as e:
             raise ValueError(f"Error updating field '{field}': {e}")
-
-    @staticmethod    
-    def model_to_dict(model_instance: T) -> dict:
-        """convert a dataclass model instance to a dictionary"""
-        return asdict(model_instance)
 
 class SetupManager:
     def __init__(self):
@@ -211,7 +210,7 @@ class SetupManager:
 
     def get_setup(self, user_id: int) -> SetupData:
         if user_id not in self.setups:
-            self.setups[user_id] = SetupData()
+            self.setups[user_id] = SetupData(user_id=user_id)
         return self.setups[user_id]
 
     def update_setup_field(self, user_id: int, field: str, value: Any) -> SetupData:
@@ -231,6 +230,9 @@ class SetupManager:
             field_parsers=self.field_parsers,
             post_update_hook=self._recalculate_metrics
         )
+
+    def to_dict(self, user_id: int) -> dict:
+        return asdict(self.get_setup(user_id))
 
     def summary(self, user_id: int) -> str:
         """format a summary for user confirmation with units"""

@@ -32,25 +32,17 @@ class TelegramExtractor:
     @staticmethod
     def extract_message(up: Update) -> MessageMetadata:
         message = up.message or (up.callback_query.message if up.callback_query else None)
+        reply_text = up.callback_query.data if up.callback_query else getattr(message, 'text', None)
+
         return MessageMetadata(
             message_id=getattr(message, 'message_id', None),
-            reply=getattr(message, 'text', None),
+            reply=reply_text,
             timestamp=getattr(message, 'date', None),
             entities=getattr(message, 'entities', None),
             is_reply=hasattr(message, 'reply_to_message') and message.reply_to_message is not None,
             reply_to_message_id=getattr(message.reply_to_message, 'message_id', None)
             if getattr(message, 'reply_to_message', None) else None,
         )
-    
-    @staticmethod
-    def extract_current_message_text(up: Update) -> Optional[str]:
-        """Get current message text without storing it
-        Also simplifies callback query data extraction"""
-        if up.callback_query:
-            return up.callback_query.data
-        elif up.message:
-            return up.message.text
-        return None
     
     @staticmethod
     def session(up: Update) -> SessionData:
