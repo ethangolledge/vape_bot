@@ -14,16 +14,16 @@ from telegram.ext import (
 )
 from .extractors import TelegramExtractor
 from .states import BotStates
-from .models import SetupManager
-from .data_transfer import DuckDBManager
+from data.models import SetupManager
+from data.database import DuckDBManager
 
 
 class ConversationFlow:
-    def __init__(self, db: DuckDBManager) -> None:
-        """Initialise the conversation flow with session management"""
+    def __init__(self) -> None:
+        """initialise conversation flow with db and data extractors"""
+        self.db = DuckDBManager()
         self.extractor = TelegramExtractor()
         self.setup = SetupManager()
-        self.db = db
 
     async def start_command(self, up: Update, ctx: ContextTypes.DEFAULT_TYPE):
         """simply saying hello and intro"""
@@ -169,12 +169,14 @@ class ConversationFlow:
                 )
             
             self.setup.update_setup_field(session.uid, "goal", user_input)
-            
+            setup_dict = self.setup.to_dict(session.uid)
+
             summary = self.setup.summary(session.uid)
             if not summary:
                 raise ValueError("Setup data not found, cannot finish setup.")
 
-            #self.db.insert_setup(session.uid, self.setup)
+            # save to db
+            self.db.insert_setup(setup_dict)
 
             await up.message.reply_text(
                 summary + "\nSetup complete! Send /setup to change anything.",

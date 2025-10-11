@@ -1,6 +1,6 @@
 from typing import Optional
 from telegram import Update
-from .models import UserProfile, ChatContext, MessageMetadata, SessionData
+from data.models import UserProfile, ChatContext, MessageMetadata, SessionData
 
 class TelegramExtractor:
     """Extracts data from Telegram Updates"""
