@@ -26,9 +26,9 @@ Track vape habits, with the goal of reducing reliance on vaping.
 
 ## Next Steps
 - Implement comprehensive testing with Pytest
-- Standardize error handling across conversation states
+- Standardise error handling across conversation states
 - Establish consistent logging practices
-- Containerization with Docker
+- Containerisation with Docker
 
 ## Tech Stack
 - Python
