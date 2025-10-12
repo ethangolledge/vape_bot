@@ -30,7 +30,7 @@ class DuckDBManager:
                 updated_at TIMESTAMP
             )"""
         }
-
+    
     def _initialise_tables(self) -> None:
         """initialise all database tables in a single transaction"""
         try:
@@ -44,25 +44,48 @@ class DuckDBManager:
 
 
     def insert_setup(self, setup_dict: dict) -> bool:
-        """Insert dictionary data into user_setups using Arrow"""
+        """Insert or update data in user_setups using Arrow and CTE logic"""
         try:
             logging.debug(f"Inserting setup data: {setup_dict}")
 
-            setup_table = pa.Table.from_pylist([setup_dict])
-
+            # Convert dictionary to Arrow table
+            setup_table = pa.Table.from_pydict({k: [v] for k, v in setup_dict.items()})
             self.conn.execute('BEGIN TRANSACTION')
-
-            self.conn.register("temp_arrow_data", setup_table)
+            self.conn.register("temp_setup_arrow", setup_table)
 
             self.conn.execute("""
-                INSERT OR REPLACE INTO user_setups
-                SELECT * FROM temp_arrow_data
+            WITH existing AS (
+                SELECT user_id FROM user_setups WHERE user_id IN (SELECT user_id FROM temp_setup_arrow)
+            )
+            INSERT INTO user_setups (user_id, tokes, strength, method, reduce_amount, reduce_percent, created_at, updated_at)
+            SELECT
+                source.user_id,
+                source.tokes,
+                source.strength,
+                source.method,
+                source.reduce_amount,
+                source.reduce_percent,
+                source.created_at,
+                source.updated_at
+            FROM temp_setup_arrow AS source
+            WHERE source.user_id NOT IN (SELECT user_id FROM existing);
+
+            UPDATE user_setups
+            SET
+                tokes = source.tokes,
+                strength = source.strength,
+                method = source.method,
+                reduce_amount = source.reduce_amount,
+                reduce_percent = source.reduce_percent,
+                updated_at = source.updated_at
+            FROM temp_setup_arrow AS source
+            WHERE user_setups.user_id = source.user_id;
             """)
 
-            self.conn.unregister("temp_arrow_data")
+            self.conn.unregister("temp_setup_arrow")
             self.conn.execute('COMMIT')
 
-            logging.info(f"Insert successful for user {setup_dict['user_id']}")
+            logging.info(f"Insert/update successful for user {setup_dict['user_id']}")
             return True
 
         except Exception as e:
