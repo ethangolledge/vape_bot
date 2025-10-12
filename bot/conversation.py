@@ -217,5 +217,5 @@ class ConversationFlow:
                 BotStates.METHOD: [CallbackQueryHandler(self.ask_goal)],
                 BotStates.GOAL: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.setup_finish)],
             },
-            fallbacks=[CommandHandler("cancel", self.cancel)],
+            fallbacks=[CommandHandler("cancel", self.cancel)]
         )

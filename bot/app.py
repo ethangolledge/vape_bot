@@ -3,7 +3,7 @@ from dotenv import load_dotenv
 from telegram.ext import Application
 from .handlers import register_handlers
 from data.database import DuckDBManager
-from logging.logger import setup_logger
+from logger import setup_logger
 
 class VapeBot:
     def __init__(self):
@@ -12,11 +12,10 @@ class VapeBot:
         
         # logging
         self.logger = setup_logger('bot_development')
-        # initialise app and db
+        # initialise app
         self.app = Application.builder().token(token).build()
-        self.db = DuckDBManager(db_path="vape_tracking.db")
         
-        register_handlers(self.app, self.db)
+        register_handlers(self.app)
 
     def run(self):
         try:
